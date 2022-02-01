@@ -4,14 +4,14 @@ Some variables and labels are given names or where renamed, but here is the code
 
 # Usage
 Same as in original:
-ABK_insert [ABK file] [wav file] [sample № to replace]
-Use mono 16-bit files only.
-SX.exe must be in the same dir.
+- ABK_insert [ABK file] [wav file] [sample № to replace]
+- Use mono 16-bit files only.
+- SX.exe must be in the same dir.
 
 # Changes compare original
-Insert new sound in the end of BNK istead of end of ABK.
-Size of inserted sound included in ABK total size.
-BNK total size changing.
+- Insert new sound in the end of BNK istead of end of ABK.
+- Size of inserted sound included in ABK total size.
+- BNK total size changing.
 
 # Compatibility
 New version compatible atleast for NFS Underground front end sounds, I think it must be compatible with any ABKs of any NFS.
