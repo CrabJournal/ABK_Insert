@@ -10,13 +10,13 @@ Same as the original:
 - SX.exe must be in the same folder.
 
 # What's new
-2.0
+**2.0**
 - Insert new sound in the end of BNK istead of end of ABK.
 - Size of inserted sound included in ABK total size.
 - BNK total size changing.
 - Added compatibility with NFS Underground (front-end SFX)
 
-2.1
+**2.1**
 - Some fixes in ABK_insert (16 bytes align, looplenght fix, deleting xa.raw after using)
 - Fixed SX crashes in cases when there was file with >19 characters name in same folder.
 
