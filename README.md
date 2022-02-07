@@ -21,8 +21,9 @@ Same as the original:
 - Fixed SX crashes in cases when there was file with >19 characters name in same folder.
 
 # Compatibility
-With adding compatibility with NFS Underground, I think it should be compatible with any ABKs of any NFS.
+With adding compatibility with NFS Underground, I think it should be compatible with any ABKs between Underground and Carbon (which is using BNKl fromat).
 If you have found any compatibility issues, let me know.
+TODO: S10A fromat support.
 
 # Sound eXchange
 This program is used in conjuction with Sound eXchange. 
