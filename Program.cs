@@ -5,7 +5,6 @@ using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 
-
 namespace ABK_insert
 {
     class Program
@@ -18,6 +17,11 @@ namespace ABK_insert
         private static uint byte_swap(uint le)
         {
             return (uint)((int)(le & (uint)0xFF) * 0x1000000 + (int)(le >> 8 & (uint)byte.MaxValue) * 0x10000 + (int)(le >> 16 & (uint)byte.MaxValue) * 256) + (le >> 24 & (uint)0xFF);
+        }
+        private static uint Align(uint value, uint aligment)
+        {
+            uint t = aligment - 1;
+            return (value + t) & (~t);
         }
 
         private static void read_wav(string name)
@@ -107,6 +111,7 @@ namespace ABK_insert
         }
         private static void Main(string[] args)
         {
+            const string tmp_file_name = "xa.raw";
             Dictionary<KEY, string> dictionary = new Dictionary<KEY, string>();
             dictionary.Add(KEY.SplitB, "SplitB");
             dictionary.Add(KEY.Split, "Split");
@@ -135,7 +140,7 @@ namespace ABK_insert
                 BinaryWriter OUT_ABK_Writer = new BinaryWriter((Stream)OUT_ABK_FILE);
                 BinaryReader OUT_ABK_Reader = new BinaryReader((Stream)OUT_ABK_FILE);
                 Program.read_wav(args[1]);
-                Process.Start("sx.exe", "-raw -eaxa_blk " + args[1] + " -=xa.raw").WaitForExit();
+                Process.Start("sx.exe", "-raw -eaxa_blk " + args[1] + " -=" + tmp_file_name).WaitForExit();
                 if (IN_ABK_FILE_Reader.ReadInt32() != 1129005633)
                 {
                     Console.WriteLine("ABKC signature not found.");
@@ -169,8 +174,8 @@ namespace ABK_insert
                         short num_sounds = IN_ABK_FILE_Reader.ReadInt16();
                         OUT_ABK_Writer.Write(num_sounds);
                         Console.WriteLine(args[0] + " Sounds: " + (object)num_sounds);
-                        int num9 = IN_ABK_FILE_Reader.ReadInt32();
-                        OUT_ABK_Writer.Write(num9);
+                        int bnk_size = IN_ABK_FILE_Reader.ReadInt32(); // recalc later
+                        OUT_ABK_Writer.Write(bnk_size);
                         OUT_ABK_Writer.Write(0);
                         OUT_ABK_Writer.Write(0);
                         IN_ABK_FILE.Seek(8L, SeekOrigin.Current);
@@ -193,7 +198,7 @@ namespace ABK_insert
                             IN_ABK_FILE.Seek(SoundsOffsets[sound_index], SeekOrigin.Begin);
                             if (IN_ABK_FILE_Reader.ReadInt32() == 21584) // "PT"
                             {
-                                OUT_ABK_FILE.Seek(OUT_ABK_FILE.Position + 3L & 0xFFFFFFFCL/*align by 4*/, SeekOrigin.Begin);
+                                OUT_ABK_FILE.Seek(Align((uint)OUT_ABK_FILE.Position, 4), SeekOrigin.Begin);
                                 IN_PT_offsets[sound_index] = OUT_ABK_FILE.Position;
                                 OUT_ABK_Writer.Write(21584); // "PT"
                                 long[] numArray3 = new long[2];
@@ -205,10 +210,10 @@ namespace ABK_insert
                                     int value;
                                     do
                                     {
-                                        bool stop_write;
+                                        bool custom_value;
                                         do
                                         {
-                                            stop_write = false;
+                                            custom_value = false;
                                             key = (KEY)IN_ABK_FILE_Reader.ReadByte();
                                             if (key == KEY.End)
                                             {
@@ -228,21 +233,21 @@ namespace ABK_insert
                                             {
                                                 OUT_ABK_Writer.Write((byte)key);
                                                 if (key == KEY.DataStart1)
-                                                    stop_write = true;
+                                                    custom_value = true;
                                                 if ((key == KEY.SampleRate || key == KEY.NumSamples || key == KEY.LoopLength) && sound_index == IN_sound_num)
-                                                    stop_write = true;
+                                                    custom_value = true;
                                             }
                                         } while (key == KEY.Skip1 || key == KEY.Skip2 || key == KEY.Skip3);
 
                                         byte num_bytes = IN_ABK_FILE_Reader.ReadByte();
-                                        if (!stop_write)
+                                        if (!custom_value)
                                             OUT_ABK_Writer.Write(num_bytes);
                                         value = 0; // 1 - 4 byte(s)
                                         for (int byte_index = 0; byte_index < (int)num_bytes; ++byte_index)
                                         {
                                             byte byte_of_data = IN_ABK_FILE_Reader.ReadByte();
                                             value = (value << 8) + (int)byte_of_data;
-                                            if (!stop_write)
+                                            if (!custom_value)
                                                 OUT_ABK_Writer.Write(byte_of_data);
                                         }
                                         if (dictionary.ContainsKey(key))
@@ -253,8 +258,9 @@ namespace ABK_insert
                                             split = value;
                                         if (key == KEY.Channels)
                                             Channels = value;
-                                        if (stop_write)
+                                        if (custom_value)
                                         {
+                                            const int num_samples_drop = 64;
                                             if (key == KEY.SampleRate)
                                             {
                                                 flag1 = true;
@@ -264,12 +270,12 @@ namespace ABK_insert
                                             if (key == KEY.NumSamples)
                                             {
                                                 OUT_ABK_Writer.Write((byte)4);
-                                                OUT_ABK_Writer.Write(Program.byte_swap((uint)Program.num_of_samples - 64));
+                                                OUT_ABK_Writer.Write(Program.byte_swap((uint)Program.num_of_samples - num_samples_drop)); 
                                             }
                                             if (key == KEY.LoopLength)
                                             {
                                                 OUT_ABK_Writer.Write((byte)4);
-                                                OUT_ABK_Writer.Write(Program.byte_swap((uint)(Program.num_of_samples - 200)));
+                                                OUT_ABK_Writer.Write(Program.byte_swap((uint)(Program.num_of_samples - num_samples_drop - 1)));
                                             }
                                         }
                                         if (key == KEY.DataStart1)
@@ -282,7 +288,7 @@ namespace ABK_insert
                                                 OUT_ABK_Writer.Write(Program.byte_swap((uint)(value + 16)));
                                         }
                                     }
-                                    while (key != KEY.LoopLength);
+                                    while (key != KEY.DataStart2);
                                     numArray3[1] = (long)value;
                                 }
                             label_unsupported:
@@ -309,11 +315,14 @@ namespace ABK_insert
                             OUT_ABK_FILE.Write(buffer2, 0, count2);
 
                             // write data in bnk's end
-                            FileStream RAW_FILE = new FileStream("xa.raw", FileMode.Open);
-                            byte[] RAW_FILE_Data = new byte[RAW_FILE.Length];
+                            FileStream RAW_FILE = new FileStream(tmp_file_name, FileMode.Open);
+                            int file_size_aligned = (int)Align((uint)RAW_FILE.Length, 16);
+                            byte[] RAW_FILE_Data = new byte[file_size_aligned];
                             RAW_FILE.Read(RAW_FILE_Data, 0, (int)RAW_FILE.Length);
-                            OUT_ABK_FILE.Write(RAW_FILE_Data, 0, (int)RAW_FILE.Length);
-                            int total_size_diff = PT_size_diff + (int)RAW_FILE.Length;
+                            RAW_FILE.Close();
+                            File.Delete(tmp_file_name);
+                            OUT_ABK_FILE.Write(RAW_FILE_Data, 0, file_size_aligned);
+                            int total_size_diff = PT_size_diff + file_size_aligned;
 
                             // abk's tail
                             int count3 = (int)IN_ABK_FILE.Length - ABK_funcfixupoffset;
@@ -359,9 +368,7 @@ namespace ABK_insert
 
                             // change bnk size
                             OUT_ABK_FILE.Seek(ABK_sfxbankoffset + 8, SeekOrigin.Begin);
-                            int old_bnk_size = OUT_ABK_Reader.ReadInt32();
-                            OUT_ABK_FILE.Seek(-4, SeekOrigin.Current);
-                            OUT_ABK_Writer.Write(old_bnk_size + total_size_diff);
+                            OUT_ABK_Writer.Write(bnk_size + total_size_diff);
 
                             IN_ABK_FILE_Reader.Close();
                             IN_ABK_FILE.Close();
