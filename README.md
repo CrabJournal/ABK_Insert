@@ -20,6 +20,9 @@ Same as the original:
 - Some fixes in ABK_insert (16 bytes align, looplenght fix, deleting xa.raw after using)
 - Fixed SX crashes in cases when there was file with >19 characters name in same folder.
 
+**2.2**
+- Compatibility improvement for Underground: added support for uncompressed PCM which is using in at least in engine sounds and skids in Underground.
+
 # Compatibility
 With adding compatibility with NFS Underground, I think it should be compatible with any ABKs between Underground and MW (which is using BNKl fromat).
 If you have found any compatibility issues, let me know.
