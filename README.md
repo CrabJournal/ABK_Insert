@@ -23,11 +23,22 @@ Same as the original:
 **2.2**
 - Compatibility improvement for Underground: added support for uncompressed PCM which is using in at least in engine sounds and skids in Underground.
 
-# Compatibility
-With adding compatibility with NFS Underground, I think it should be compatible with any ABKs between Underground and MW (which is using BNKl fromat).
-If you have found any compatibility issues, let me know.
+**3.0**
+- Supporting S10A bank format and EA-XAS codec for Carbon+
+- Some little fixes
 
-TODO: S10A fromat support.
+# Compatibility
++BNKl bank format (Underground - Most Wanted):
+
+	EA-XA R2 codec (Underground - Most Wanted)
+  
+	uncompressed 16 bit PCM (Underground, ?)
+  
++S10A bank format (Carbon+):
+
+	EA-XAS codec
+  
+If you have found any compatibility issues, let me know.
 
 # Sound eXchange
 This program is used in conjuction with Sound eXchange. 
