@@ -30,13 +30,13 @@ Same as the original:
 # Compatibility
 +BNKl bank format (Underground - Most Wanted):
 
-	EA-XA R2 codec (Underground - Most Wanted)
+	- EA-XA R2 codec (Underground - Most Wanted)
   
-	uncompressed 16 bit PCM (Underground, ?)
+	- uncompressed 16 bit PCM (Underground, ?)
   
 +S10A bank format (Carbon+):
 
-	EA-XAS codec
+	- EA-XAS codec
   
 If you have found any compatibility issues, let me know.
 
