@@ -131,10 +131,10 @@ namespace ABK_insert
         }
         class EA_ADPCM_codec
         {
-            [System.Runtime.InteropServices.DllImport("EA ADPCM codec", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+            [System.Runtime.InteropServices.DllImport("EA_ADPCM_codec", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
             public static extern void encode_XAS(byte[] XAS, byte[] in_PCM, uint n_samples_per_channel, uint n_channels);
 
-            [System.Runtime.InteropServices.DllImport("EA ADPCM codec", CallingConvention = CallingConvention.Cdecl)]
+            [System.Runtime.InteropServices.DllImport("EA_ADPCM_codec", CallingConvention = CallingConvention.Cdecl)]
             public static extern uint GetXASEncodedSize(uint n_samples_per_channel, uint n_channels);
 
             //public static void encode_XAS
