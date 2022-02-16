@@ -360,7 +360,6 @@ namespace ABK_insert
 
             //unsafe
             {
-                // int* FirstResult = Results[0];
                 EA_ADPCM_codec.encode_XAS(XAS, samples, (uint)num_of_samples, (uint)channels);
             }
 
