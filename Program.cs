@@ -84,7 +84,7 @@ namespace ABK_insert
             Signature sign = (Signature)binaryReader.ReadUInt32();
             while (sign != Signature.data)
             {
-                if(sign == Signature.smpl)
+                if (sign == Signature.smpl)
                 {
                     binaryReader.BaseStream.Seek(binaryReader.ReadUInt32(), SeekOrigin.Current);
                     sign = (Signature)binaryReader.ReadUInt32();
@@ -101,7 +101,7 @@ namespace ABK_insert
             binaryReader.Close();
             Wav.Close();
         }
-        enum KEY : byte
+        enum TAG : byte
         {
             // 6
             // 0x13
@@ -142,10 +142,67 @@ namespace ABK_insert
 
         private readonly string[] codec_names = { "ADPCM EA-XA R2", "ADPCM EA-XAS", "PCM S16LE" };
 
+        private static long CountSoundSize(BinaryReader binaryReader, int samples, codecs codec)
+        {
+            var start = binaryReader.BaseStream.Position;
+            long size;
+            switch (codec)
+            {
+                case codecs.PCM_S16LE:
+                    size = samples * 2;
+                    break;
+                case codecs.ADPCM_EA_XA_R2:
+                    const int sizeof_compr_EA_XA_R23_block = 15;
+                    const int sizeof_uncompr_EA_XA_R23_block = 61;
+                    while (samples > 0)
+                    {
+                        binaryReader.BaseStream.Seek(
+                            (binaryReader.ReadByte() == 0xEE
+                                ? sizeof_uncompr_EA_XA_R23_block
+                                : sizeof_compr_EA_XA_R23_block
+                            ) - 1, SeekOrigin.Current);
+                        samples -= 28;
+                    }
+                    size = binaryReader.BaseStream.Position - start;
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
+            // binaryReader.BaseStream.Seek(start, SeekOrigin.Begin);
+            return size;
+        }
+
+        static int ReadBE(BinaryReader reader, int num_bytes)
+        {
+            int shift_bytes = 4 - num_bytes;
+            int shift = shift_bytes * 8;
+            int val = (int)(byte_swap(reader.ReadUInt32() << shift) );
+            val = (val << shift) >> shift; // shift sign bit
+            reader.BaseStream.Seek(-shift_bytes, SeekOrigin.Current);
+            return val;
+        }
+
+        static void WriteBE(BinaryWriter writer, int num_bytes, int val)
+        {
+            writer.Write((byte)num_bytes);
+            uint BE = byte_swap((uint)val);
+            for (var i = 0; i < num_bytes; i++)
+            {
+                byte t = (byte)( val >> ((num_bytes - i - 1) * 8) );
+                writer.Write(t);
+            }
+        }
+
+        static void ReWriteBE(BinaryWriter writer, int num_bytes, int val)
+        {
+            writer.BaseStream.Seek(-(num_bytes + 1), SeekOrigin.Current);
+            WriteBE(writer, 4, val);
+        }
+
         private static int InsertInBNKl(BinaryReader IN_ABK_FILE_Reader, BinaryWriter OUT_ABK_Writer,
             int IN_sound_num, int ABK_sfxbanksize, string[] args)
         {
-            const string tmp_file_name = "xa.raw";
+            const string raw_file_name = "xa.raw";
             Stream IN_ABK_FILE = IN_ABK_FILE_Reader.BaseStream;
             Stream OUT_ABK_FILE = OUT_ABK_Writer.BaseStream;
             int ABK_sfxbankoffset = (int)IN_ABK_FILE.Position - 4;
@@ -171,6 +228,13 @@ namespace ABK_insert
                 OUT_ABK_Writer.Write(0);
             }
 
+            const int num_channels_supported = 1;
+            long[,] IN_data_offsets = new long[num_channels_supported, num_sounds];
+            long[,] OUT_data_offset_offsets = new long[num_channels_supported, num_sounds];
+            int[] IN_nSamples = new int[num_sounds];
+            codecs[] IN_codecs = new codecs[num_sounds];
+
+
             // write metadata
             for (int sound_index = 0; sound_index < num_sounds; ++sound_index)
             {
@@ -182,151 +246,138 @@ namespace ABK_insert
 
                 OUT_ABK_FILE.Seek(Align((uint)OUT_ABK_FILE.Position, 4), SeekOrigin.Begin);
                 OUT_PT_offsets[sound_index] = OUT_ABK_FILE.Position;
-                OUT_ABK_Writer.Write(0x5450); // "PT"
+                OUT_ABK_Writer.Write((uint)Signature.PT); // "PT"
                 bool is_sample_rate_written = false;
-                // proc keys
+                IN_codecs[sound_index] = codecs.ADPCM_EA_XA_R2;
                 while (true)
                 {
-                    KEY key;
+                    TAG tag;
+                    byte length;
                     int value;
-
-                    bool custom_value;
-                    custom_value = false;
-                    key = (KEY)IN_ABK_FILE_Reader.ReadByte();
-                    if (key == KEY.End)
+                    tag = (TAG)IN_ABK_FILE_Reader.ReadByte();
+                    OUT_ABK_Writer.Write((byte)tag);
+                    if (tag == TAG.End)
                     {
                         if (sound_index == IN_sound_num && !is_sample_rate_written)
                         {
-                            OUT_ABK_Writer.Write((byte)KEY.SampleRate);
+                            OUT_ABK_FILE.Seek(-1, SeekOrigin.Current);
+                            OUT_ABK_Writer.Write((byte)TAG.SampleRate);
                             OUT_ABK_Writer.Write((byte)4);
                             OUT_ABK_Writer.Write(Program.byte_swap((uint)Program.samplerate));
                         }
-                        OUT_ABK_Writer.Write((byte)key); // KEY.End
-                        if (Channels <= 1 || split == 2)
-                            break;
-                        else
-                            Console.WriteLine("Unsupported stereo split mode");
+                        break;
                     }
-                    else
-                    {
-                        OUT_ABK_Writer.Write((byte)key);
-                        if (key == KEY.DataStart1)
-                            custom_value = true;
-                        else if ((key == KEY.SampleRate || key == KEY.NumSamples || key == KEY.LoopLength) && sound_index == IN_sound_num)
-                            custom_value = true;
-                    }
-                    if (key == KEY.Skip1 || key == KEY.Skip2 || key == KEY.Skip3)
+                    if (tag >= TAG.Skip1 && tag <= TAG.Skip3)
                         continue;
-
-                    byte num_bytes = IN_ABK_FILE_Reader.ReadByte();
-                    if (!custom_value)
-                        OUT_ABK_Writer.Write(num_bytes);
-                    value = 0; // 1 - 4 byte(s)
-                    for (int byte_index = 0; byte_index < num_bytes; ++byte_index)
+                    length = IN_ABK_FILE_Reader.ReadByte();
+                    value = ReadBE(IN_ABK_FILE_Reader, length);
+                    WriteBE(OUT_ABK_Writer, length, value);
+                    switch (tag)
                     {
-                        byte byte_of_data = IN_ABK_FILE_Reader.ReadByte();
-                        value = (value << 8) + byte_of_data;
-                        if (!custom_value)
-                            OUT_ABK_Writer.Write(byte_of_data);
-                    }
-                    // if (dictionary.ContainsKey(key)) { string str = " (" + dictionary[key] + ")"; }
-                    switch (key)
-                    {
-                        case KEY.Split:
-                            split = value;
+                        case TAG.DataStart1:
+                            IN_data_offsets[0, sound_index] = value;
+                            OUT_ABK_FILE.Seek(-(length + 1), SeekOrigin.Current);
+                            OUT_data_offset_offsets[0, sound_index] = OUT_ABK_FILE.Position + 1;
+                            WriteBE(OUT_ABK_Writer, 4, 0);
                             break;
-                        case KEY.Channels:
-                            Channels = value;
+                        case TAG.NumSamples:
+                            IN_nSamples[sound_index] = value;
                             break;
-                        case KEY.SplitCompression:
-                            if (sound_index == IN_sound_num)
+                        case TAG.SplitCompression:
+                            if (value == 8)
                             {
-                                // value = 0xA = default 
-                                if (value == 8)
-                                {
-                                    sx_codec = "s16l_blk";
-                                    Console.WriteLine("Using uncompressed PCM");
-                                }
-                                else
-                                {
-                                    Console.WriteLine("Unknown Split Compression: " + value);
-                                }
+                                IN_codecs[sound_index] = codecs.PCM_S16LE;
                             }
-                            break;
-                        case KEY.DataStart1:
-
-                            OUT_ABK_Writer.Write((byte)4);
-                            //DataOffsets[sound_index] = OUT_ABK_FILE.Position;
-                            //OUT_ABK_Writer.Write((uint)0);
-                            if (sound_index == IN_sound_num)
-                                // write in bnk's end
-                                OUT_ABK_Writer.Write(Program.byte_swap((uint)(ABK_sfxbanksize + 16)));
-                            else
-                                OUT_ABK_Writer.Write(Program.byte_swap((uint)(value + 16)));
-                            break;
-                        case KEY.DataStart2:
-                            Console.WriteLine("Unsupported stereo split mode");
                             break;
                         default:
-                            if (custom_value)
-                            {
-                                const int num_samples_drop = 0;
-                                switch (key)
-                                {
-                                    case KEY.SampleRate:
-                                        {
-                                            is_sample_rate_written = true;
-                                            OUT_ABK_Writer.Write((byte)4);
-                                            OUT_ABK_Writer.Write(Program.byte_swap((uint)Program.samplerate));
-                                            break;
-                                        }
-                                    case KEY.NumSamples:
-                                        {
-                                            OUT_ABK_Writer.Write((byte)4);
-                                            OUT_ABK_Writer.Write(Program.byte_swap((uint)Program.num_of_samples - num_samples_drop));
-                                            break;
-                                        }
-                                    case KEY.LoopLength:
-                                        {
-                                            OUT_ABK_Writer.Write((byte)4);
-                                            OUT_ABK_Writer.Write(Program.byte_swap((uint)(Program.num_of_samples - num_samples_drop - 1)));
-                                            break;
-                                        }
-                                    default:
-                                        break;
-                                }
-                            }
                             break;
                     }
-
+                    if (sound_index == IN_sound_num)
+                    {
+                        switch (tag)
+                        {
+                            case TAG.SampleRate:
+                                is_sample_rate_written = true;
+                                ReWriteBE(OUT_ABK_Writer, length, samplerate);
+                                break;
+                            case TAG.NumSamples:
+                                ReWriteBE(OUT_ABK_Writer, length, Program.num_of_samples);
+                                break;
+                            case TAG.LoopLength:
+                                ReWriteBE(OUT_ABK_Writer, length, Program.num_of_samples - 1);
+                                break;
+                            default:
+                                break;
+                        }
+                    }
                 }
             }
+
+            const int PT_size_diff = 16;
+
             if (OUT_ABK_FILE.Position - IN_ABK_FILE.Position > 16)
             {
                 throw new Exception("Large files size difference");
             }
 
+            if (IN_codecs[IN_sound_num] == codecs.PCM_S16LE)
+            {
+                sx_codec = "s16l_blk";
+                Console.WriteLine("Using uncompressed PCM");
+            }
+
             // make diff 16 bytes
             OUT_ABK_FILE.Seek(IN_ABK_FILE.Position - OUT_ABK_FILE.Position + 16, SeekOrigin.Current);
 
-            const int PT_size_diff = 16;
+            // copy sounds data
+            for (int sound_index = 0; sound_index < num_sounds; sound_index++)
+            {
+                if (IN_data_offsets[0, sound_index] == 0)
+                {
+                    continue;
+                }
+                uint out_data_offset = (uint)(OUT_ABK_FILE.Position - ABK_sfxbankoffset);
+                if (sound_index == IN_sound_num)
+                {
+                    Process.Start("sx.exe", "-raw -" + sx_codec + " " + args[1] + " -=" + raw_file_name).WaitForExit();
+                    FileStream RAW_FILE = new FileStream(raw_file_name, FileMode.Open);
+                    int file_size_aligned = (int)Align((uint)RAW_FILE.Length, 4);
+                    byte[] RAW_FILE_Data = new byte[file_size_aligned];
+                    RAW_FILE.Read(RAW_FILE_Data, 0, (int)RAW_FILE.Length);
+                    RAW_FILE.Close();
+                    File.Delete(raw_file_name);
+                    OUT_ABK_FILE.Write(RAW_FILE_Data, 0, file_size_aligned);
 
-            // copy remain bnk
-            int count2 = ABK_sfxbanksize - ((int)IN_ABK_FILE.Position - ABK_sfxbankoffset);
-            byte[] buffer2 = new byte[count2];
-            IN_ABK_FILE.Read(buffer2, 0, count2);
-            OUT_ABK_FILE.Write(buffer2, 0, count2);
+                    long curr_pos = OUT_ABK_FILE.Position;
+                    OUT_ABK_FILE.Seek(OUT_data_offset_offsets[0, sound_index], SeekOrigin.Begin);
+                    OUT_ABK_Writer.Write(byte_swap(out_data_offset));
+                    OUT_ABK_FILE.Seek(curr_pos, SeekOrigin.Begin);
+                }
+                else
+                {
+                    for (int channel_index = 0; channel_index < num_channels_supported; channel_index++)
+                    {
+                        IN_ABK_FILE.Seek(ABK_sfxbankoffset + IN_data_offsets[channel_index, sound_index], SeekOrigin.Begin);
+                        uint size = (uint)CountSoundSize(IN_ABK_FILE_Reader, IN_nSamples[sound_index], IN_codecs[sound_index]);
 
-            // write data in bnk's end
-            Process.Start("sx.exe", "-raw -" + sx_codec + " " + args[1] + " -=" + tmp_file_name).WaitForExit();
-            FileStream RAW_FILE = new FileStream(tmp_file_name, FileMode.Open);
-            int file_size_aligned = (int)Align((uint)RAW_FILE.Length, 16);
-            byte[] RAW_FILE_Data = new byte[file_size_aligned];
-            RAW_FILE.Read(RAW_FILE_Data, 0, (int)RAW_FILE.Length);
-            RAW_FILE.Close();
-            File.Delete(tmp_file_name);
-            OUT_ABK_FILE.Write(RAW_FILE_Data, 0, file_size_aligned);
-            int total_size_diff = PT_size_diff + file_size_aligned;
+                        IN_ABK_FILE.Seek(ABK_sfxbankoffset + IN_data_offsets[channel_index, sound_index], SeekOrigin.Begin);
+
+                        uint aligned_size = Align(size, 4);
+
+                        byte[] sound_buf = new byte[aligned_size];
+                        IN_ABK_FILE.Read(sound_buf, 0, (int)size);
+
+                        OUT_ABK_FILE.Write(sound_buf, 0, (int)aligned_size);
+
+                        long curr_pos = OUT_ABK_FILE.Position;
+                        OUT_ABK_FILE.Seek(OUT_data_offset_offsets[channel_index, sound_index], SeekOrigin.Begin);
+                        OUT_ABK_Writer.Write(byte_swap(out_data_offset));
+                        OUT_ABK_FILE.Seek(curr_pos, SeekOrigin.Begin);
+                    }
+                }
+            }
+
+            int total_size_diff = (int)OUT_ABK_FILE.Position - (ABK_sfxbankoffset + ABK_sfxbanksize);
 
             // write offsets to PTs
             OUT_ABK_FILE.Seek(ABK_sfxbankoffset + 0x14, SeekOrigin.Begin);
@@ -360,6 +411,7 @@ namespace ABK_insert
 
             //unsafe
             {
+                // int* FirstResult = Results[0];
                 EA_ADPCM_codec.encode_XAS(XAS, samples, (uint)num_of_samples, (uint)channels);
             }
 
@@ -399,12 +451,12 @@ namespace ABK_insert
                 throw new Exception("num_sounds <= IN_sound_num");
             }
 
-            IN_ABK_FILE.Seek(IN_sound_num*4, SeekOrigin.Current);
+            IN_ABK_FILE.Seek(IN_sound_num * 4, SeekOrigin.Current);
             uint sound_offset = byte_swap(IN_ABK_FILE_Reader.ReadUInt32());
 
             if (sound_offset == 0xFFFF_FFFF)
             {
-                throw new Exception("sound you are trying to replace is empty");
+                throw new Exception("sound you are trying to replace is dummy");
             }
 
             byte[] pre_buf = new byte[sound_offset - 0xC];
@@ -413,9 +465,22 @@ namespace ABK_insert
             IN_ABK_FILE.Read(pre_buf, 0, pre_buf.Length);
             OUT_ABK_FILE.Write(pre_buf, 0, pre_buf.Length);
 
+
+            /* EA SNR/SPH header */
+            //uint header1 = byte_swap(IN_ABK_FILE_Reader.ReadUInt32());
+            //uint header2 = byte_swap(IN_ABK_FILE_Reader.ReadUInt32());
+            //uint version = (header1 >> 28) & 0x0F; /* 4 bits */
+            //uint _codec = (header1 >> 24) & 0x0F; /* 4 bits */
+            //uint channel_config = (header1 >> 18) & 0x3F; /* 6 bits */
+            //uint sample_rate = (header1 >> 0) & 0x03FFFF; /* 18 bits */
+            //uint type = (header2 >> 30) & 0x03; /* 2 bits */
+            //uint loop_flag = (header2 >> 29) & 0x01; /* 1 bit */
+            //uint num_samples = (header2 >> 0) & 0x1FFFFFFF; /* 29 bits */
+
+            // ---------
             uint data = IN_ABK_FILE_Reader.ReadUInt32();
 
-            byte codec = (byte)data;
+            byte codec = (byte)(data & 0xF);
 
             if (codec != 4)
             {
@@ -432,19 +497,22 @@ namespace ABK_insert
             uint orig_samples = byte_swap((uint)(data & (~0xF0)));
             OUT_ABK_Writer.Write(byte_swap((uint)num_of_samples) | flags);
 
-            if ((flags & 0x20) != 0)
-            {
-                OUT_ABK_Writer.Write(IN_ABK_FILE_Reader.ReadUInt32());
-                if ((flags & 0x40) != 0)
-                {
-                    OUT_ABK_Writer.Write(IN_ABK_FILE_Reader.ReadUInt32());
 
+            if ((flags & 0x20) != 0) // loop flag
+            {
+                IN_ABK_FILE_Reader.ReadUInt32();
+                OUT_ABK_Writer.Write(0); // loop start
+                if ((flags & 0x40) != 0) // EAAC_TYPE_STREAM
+                {
+                    IN_ABK_FILE_Reader.ReadUInt32();
+                    OUT_ABK_Writer.Write(0); // loop offset
                 }
             }
+            // ---------
 
             int orig_size = 0; // including block's headres
 
-            for (uint samples_count = 0; samples_count < orig_samples; )
+            for (uint samples_count = 0; samples_count < orig_samples;)
             {
                 int block_size = (int)byte_swap(IN_ABK_FILE_Reader.ReadUInt32());
                 orig_size += block_size;
@@ -512,16 +580,16 @@ namespace ABK_insert
                 return;
             }
 
-            IN_ABK_FILE.Seek(16L, SeekOrigin.Current);
+            IN_ABK_FILE.Seek(16, SeekOrigin.Current);
             int IN_ABK_size = IN_ABK_FILE_Reader.ReadInt32();
-            IN_ABK_FILE.Seek(8L, SeekOrigin.Current);
+            IN_ABK_FILE.Seek(8, SeekOrigin.Current);
             int ABK_sfxbankoffset = IN_ABK_FILE_Reader.ReadInt32();
             int ABK_sfxbanksize = IN_ABK_FILE_Reader.ReadInt32();
-            IN_ABK_FILE.Seek(8L, SeekOrigin.Current);
+            IN_ABK_FILE.Seek(8, SeekOrigin.Current);
             int ABK_funcfixupoffset = IN_ABK_FILE_Reader.ReadInt32();
             int ABK_staticdatafixupoffset = IN_ABK_FILE_Reader.ReadInt32();
             int ABK_interfaceOffset = IN_ABK_FILE_Reader.ReadInt32();
-            IN_ABK_FILE.Seek(0L, SeekOrigin.Begin);
+            IN_ABK_FILE.Seek(0, SeekOrigin.Begin);
             byte[] headers_buf = new byte[ABK_sfxbankoffset];
             IN_ABK_FILE.Read(headers_buf, 0, ABK_sfxbankoffset);
             OUT_ABK_FILE.Write(headers_buf, 0, ABK_sfxbankoffset);
@@ -586,6 +654,6 @@ namespace ABK_insert
             OUT_ABK_Writer.Close();
             OUT_ABK_FILE.Close();
         }
-        
+
     }
 }
