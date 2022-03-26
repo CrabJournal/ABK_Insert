@@ -27,6 +27,11 @@ Same as the original:
 - Supporting S10A bank format and EA-XAS codec for Carbon+
 - Some little fixes
 
+**3.1**
+- Improved XAS encoder
+- Old sound data now deletes from BNKl
+- Loop handing for S10A
+
 # Compatibility
 +BNKl bank format (Underground - Most Wanted):
 
