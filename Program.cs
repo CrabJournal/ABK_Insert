@@ -185,7 +185,6 @@ namespace ABK_insert
         static void WriteBE(BinaryWriter writer, int num_bytes, int val)
         {
             writer.Write((byte)num_bytes);
-            uint BE = byte_swap((uint)val);
             for (var i = 0; i < num_bytes; i++)
             {
                 byte t = (byte)( val >> ((num_bytes - i - 1) * 8) );
@@ -262,8 +261,8 @@ namespace ABK_insert
                         {
                             OUT_ABK_FILE.Seek(-1, SeekOrigin.Current);
                             OUT_ABK_Writer.Write((byte)TAG.SampleRate);
-                            OUT_ABK_Writer.Write((byte)4);
-                            OUT_ABK_Writer.Write(Program.byte_swap((uint)Program.samplerate));
+                            WriteBE(OUT_ABK_Writer, 4, Program.samplerate);
+                            OUT_ABK_Writer.Write((byte)TAG.End);
                         }
                         break;
                     }
@@ -317,7 +316,7 @@ namespace ABK_insert
 
             if (OUT_ABK_FILE.Position - IN_ABK_FILE.Position > 16)
             {
-                throw new Exception("Large files size difference");
+                throw new Exception("Large files size difference: " + (OUT_ABK_FILE.Position - IN_ABK_FILE.Position) + " bytes");
             }
 
             if (IN_codecs[IN_sound_num] == codecs.PCM_S16LE)
